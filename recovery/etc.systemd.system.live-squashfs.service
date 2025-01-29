@@ -1,0 +1,12 @@
+[Unit]
+Description=Mount SquashFS Root
+DefaultDependencies=no
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/mount -o loop /live/rootfs.sqfs /newroot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=initrd.target
