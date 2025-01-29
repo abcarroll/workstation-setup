@@ -23,3 +23,7 @@ This is a bunch of scripts to setup a workstation.  You can use parts of it, or 
 	   - Same
 	 - Grub manager 
 
+# Bugs
+
+ 
+ - So, I think `pacstrap -P` (`-P` is Copy the host's pacman config to the target) is causing problems with the `mksnap` hooks.  I belive it is copying the hooks with pacstrap, and then the first time we use pacman after that, the `/media/system` mount doesn't exist on this system (in the chroot), and so it can't run the pacman hook, and causes `pacman` to fail indefinitely until the hooks are removed.  
