@@ -1,0 +1,4 @@
+#!/bin/bash
+run_hook() {
+    mount -o loop /live/recovery.squashfs /newroot
+}

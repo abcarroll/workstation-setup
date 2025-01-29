@@ -5,7 +5,7 @@ After=local-fs.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/mount -o loop /live/rootfs.sqfs /newroot
+ExecStart=/usr/bin/mount -o loop /live/recovery.squashfs /newroot
 RemainAfterExit=yes
 
 [Install]
