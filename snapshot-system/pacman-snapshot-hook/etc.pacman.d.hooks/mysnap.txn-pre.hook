@@ -1,0 +1,11 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade 
+Operation = Remove
+Type = Path
+Target = * 
+
+[Action]
+Description = Creating snapshot after each package modification
+When = PreTransaction
+Exec = /media/system/extra/scripts/pacman-hook-pre.sh
