@@ -1,0 +1,135 @@
+#!/bin/bash
+
+# Usage: mksnap <subvolume> [-c comment | < input] [--no-dir | --dir <directory>] [--ro | --rw] [--suffix <string>]
+# Example: mksnap /mnt -c "Snapshot description" --suffix "pacman-pkg"
+
+#set -x  # Uncomment to enable debugging
+
+# Function to display usage
+usage() {
+    echo "Usage: $0 <subvolume> [-c comment | < input] [--no-dir | --dir <directory>] [--ro | --rw] [--suffix <string>]"
+    exit 1
+}
+
+# Default values
+snapshot_dir="snapshots"
+comment="no comment"
+readonly_snapshot="ro"
+timestamp=$(date +%Y-%m-%d-%s)
+username=$(whoami)
+suffix=""
+
+# Parse command-line options
+while [[ "$1" != "" ]]; do
+    case $1 in
+        -c|--comment)
+            shift
+            comment="$1"
+            ;;
+        --no-dir)
+            snapshot_dir=""
+            ;;
+        --dir)
+            shift
+            snapshot_dir="$1"
+            ;;
+        --ro)
+            readonly_snapshot="ro"
+            ;;
+        --rw)
+            readonly_snapshot="rw"
+            ;;
+        --suffix)
+            shift
+            suffix="-$1"
+            ;;
+        -* )
+            echo "Unknown option: $1" >&2
+            usage
+            ;;
+        *)
+            subvolume="$1"
+            ;;
+    esac
+    shift
+done
+
+# Validate input
+if [[ -z "$subvolume" ]]; then
+    echo "Error: Subvolume is required." >&2
+    usage
+fi
+
+if [[ ! -d "$subvolume" ]]; then
+    echo "Error: Subvolume '$subvolume' does not exist." >&2
+    exit 1
+fi
+
+# Resolve device and subvolume info
+device=$(findmnt -no SOURCE "$subvolume" | sed 's/\[.*\]//')
+subvol_option=$(findmnt -no OPTIONS "$subvolume" | grep -o "subvol=[^,]*" | cut -d= -f2)
+
+# If subvol_option is empty, check manually (e.g., if /mnt/sys.arbox is a subvolume under /mnt)
+if [[ -z "$subvol_option" ]]; then
+    if btrfs subvolume show "$subvolume" &>/dev/null; then
+        subvol_option=$(btrfs subvolume show "$subvolume" | awk -F'path: ' '/path:/ {print $2}')
+    fi
+fi
+
+if [[ -z "$device" || -z "$subvol_option" ]]; then
+    echo "Error: Failed to resolve device or subvolume for '$subvolume'." >&2
+    exit 1
+fi
+
+# Mount root subvolume temporarily
+root_mount="/tmp/root_$(basename "$device")"
+mkdir -p "$root_mount"
+
+# Ensure cleanup on exit or interruption
+cleanup() {
+    echo "Cleaning up..."
+    umount "$root_mount" &>/dev/null && rmdir "$root_mount" &>/dev/null
+}
+trap cleanup EXIT INT TERM
+
+mount -o subvol=/ "$device" "$root_mount" || {
+    echo "Error: Failed to mount root subvolume of $device." >&2
+    exit 1
+}
+
+# Prepare snapshot path
+snapshot_name="${subvol_option##*/}.${timestamp}${suffix}"
+snapshot_path="$snapshot_dir/$snapshot_name"
+mkdir -p "$root_mount/$snapshot_dir"
+
+# Debug output
+echo "Resolved Device: $device"
+echo "Subvolume: $subvol_option"
+echo "Root Mount: $root_mount"
+echo "Snapshot Name: $snapshot_name"
+echo "Snapshot Path: $snapshot_path"
+
+# Create snapshot
+btrfs subvolume snapshot -r "$subvolume" "$root_mount/$snapshot_path" || {
+    echo "Error: Snapshot creation failed." >&2
+    exit 1
+}
+
+# Log snapshot
+log_file="$root_mount/$snapshot_dir/snapshots.log"
+{
+    echo -e "$(date '+%Y-%m-%d %H:%M:%S')\t$snapshot_name\t$subvolume\t$root_mount/$snapshot_path\t$readonly_snapshot\t$comment\t$username" >> "$log_file"
+} || {
+    echo "Error: Failed to write to log file." >&2
+    exit 1
+}
+
+# Write comment
+if [[ "$comment" != "no comment" ]]; then
+    echo -e "$timestamp\n$comment\nUser: $username" > "$root_mount/$snapshot_path.comment" || {
+        echo "Error: Failed to write comment file." >&2
+        exit 1
+    }
+fi
+
+echo "Snapshot created successfully at '$root_mount/$snapshot_path' with comment: $comment"
